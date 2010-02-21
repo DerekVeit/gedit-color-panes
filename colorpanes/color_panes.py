@@ -32,6 +32,13 @@ import sys
 
 import gedit
 import gtk
+try:
+    import terminal
+    import vte
+except ImportError:
+    have_terminal = False
+else:
+    have_terminal = True
 
 class ColorPanesPlugin(gedit.Plugin):
     
@@ -60,7 +67,7 @@ class ColorPanesPlugin(gedit.Plugin):
         formatter = logging.Formatter(log_format)
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
-        self.logger.setLevel(logging.WARNING)
+        self.logger.setLevel(logging.DEBUG)
         self.log('Color Panes logging started. '.ljust(72, '-'))
         self.log()
         
@@ -159,14 +166,17 @@ class ColorPanesWindowHelper(object):
             state = gtk.STATE_NORMAL
             scrolled_windows = self._list_scrolledwindows(self._window)
             for scrolled_window in scrolled_windows:
-                self._plugin.log(repr(scrolled_window))
-                view = scrolled_window.get_children()[0]
-                self._plugin.log(repr(view))
-                view.modify_text(state, fg_color)
-                view.modify_base(state, bg_color)
+                self._plugin.log('Parent: %r' % scrolled_window)
+                for view in scrolled_window.get_children():
+                    self._plugin.log('Child: %r' % view)
+                    view.modify_text(state, fg_color)
+                    view.modify_base(state, bg_color)
+                    if have_terminal and isinstance(view, vte.Terminal):
+                        view.set_colors(fg_color, bg_color, [])
     
     def _get_colors(self, style):
         """Return GDK colors for style, default to black on white."""
+        self._plugin.log()
         if style and style.get_property('foreground-set'):
             fg_color_desc = style.get_property('foreground')
         else:
@@ -187,9 +197,16 @@ class ColorPanesWindowHelper(object):
         This is just a lazy way of guessing all of the appropriate view-like
         widgets to re-color.  This could probably be improved, though it mostly
         seems to work well.
+        
+        Also includes the parent widget of the Embedded Terminal view and the
+        Character Map table.
         """
         scrolled_windows = []
         if isinstance(widget, gtk.ScrolledWindow):
+            scrolled_windows.append(widget)
+        if have_terminal and isinstance(widget, terminal.GeditTerminal):
+            scrolled_windows.append(widget)
+        if 'GucharmapTable' in type(widget).__name__:
             scrolled_windows.append(widget)
         if isinstance(widget, gtk.Container):
             children = widget.get_children()
@@ -197,3 +214,4 @@ class ColorPanesWindowHelper(object):
                 scrolled_windows += self._list_scrolledwindows(child)
         return scrolled_windows
     
+
