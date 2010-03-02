@@ -17,12 +17,20 @@
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-Version 1.0     Initial release
-Version 1.0.1   Added coloring of Embedded Terminal and Chracter Map table.
-Version 1.5.0   Added response to color scheme change.
-                Added response to pane additions.
-                Eliminated redundant color updates.
-                Eliminated most redundant widget searching.
+Version history:
+2010-03-01  Version 1.6.0
+    Changed to default to system colors instead of black-on-white.
+    Added applying editor font to Embedded Terminal.
+    Simplified widget selection.
+2010-02-25  Version 1.5.0
+    Added response to color scheme change.
+    Added response to pane additions.
+    Eliminated redundant color updates.
+    Eliminated most redundant widget searching.
+2010-02-21  Version 1.0.1
+    Added coloring of Embedded Terminal and Chracter Map table.
+2010-02-20  Version 1.0
+    Initial release
 
 Classes:
 ColorPanesPlugin -- object is loaded once by an instance of Gedit
@@ -30,20 +38,23 @@ ColorPanesWindowHelper -- object is constructed for each Gedit window
 
 """
 
+TERMINAL_MATCH_COLORS = True
+TERMINAL_MATCH_FONT = True
+
 import logging
 import logging.handlers
 import os
 import sys
 
 import gedit
+import gconf
 import gtk
 try:
-    import terminal
     import vte
 except ImportError:
-    have_terminal = False
+    HAVE_VTE = False
 else:
-    have_terminal = True
+    HAVE_VTE = True
 
 class ColorPanesPlugin(gedit.Plugin):
     
@@ -110,15 +121,15 @@ class ColorPanesPlugin(gedit.Plugin):
                       'critical': self.logger.critical}[level]
             logger(message)
         else:
-            self.logger.debug(self._whoami())
+            self.logger.debug(whoami())
     
-    def _whoami(self):
-        """Identify the calling function for logging."""
-        filename = os.path.basename(sys._getframe(2).f_code.co_filename)
-        line = sys._getframe(2).f_lineno
-        class_name = sys._getframe(2).f_locals['self'].__class__.__name__
-        function_name = sys._getframe(2).f_code.co_name
-        return '%s Line %s %s.%s' % (filename, line, class_name, function_name)
+def whoami():
+    """Identify the calling function for logging."""
+    filename = os.path.basename(sys._getframe(2).f_code.co_filename)
+    line = sys._getframe(2).f_lineno
+    class_name = sys._getframe(2).f_locals['self'].__class__.__name__
+    function_name = sys._getframe(2).f_code.co_name
+    return '%s Line %s %s.%s' % (filename, line, class_name, function_name)
 
 class ColorPanesWindowHelper(object):
     
@@ -165,7 +176,11 @@ class ColorPanesWindowHelper(object):
         self._handlers_per_notebook = {}
         """Signal handlers for each gtk.Notebook in the Gedit window."""
         self._notebooks = self._get_notebooks(self._window)
+        """The container widgets corresponding to the side and bottom panes."""
         self._connect_notebooks()
+        
+        self._terminal = None
+        """The widget of the Embedded Terminal view if it is found."""
         
         self.update_ui(window)
         """
@@ -192,75 +207,64 @@ class ColorPanesWindowHelper(object):
         if doc != self._signal_doc:
             self._update_doc_handler(doc)
     
-    def _update_pane_colors(self, doc):
-        """Apply the color scheme to other view widgets in the Gedit window."""
-        self._plugin.log()
-        style = self._get_style(doc)
-        fg_color, bg_color = self._get_colors(style)
-        state = gtk.STATE_NORMAL
-        for notebook in self._notebooks:
-            #self._plugin.log('notebook: %r' % notebook)
-            for widget in self._get_widgets_to_color(notebook):
-                #self._plugin.log('widget: %r' % widget)
-                widget.modify_text(state, fg_color)
-                widget.modify_base(state, bg_color)
-                if have_terminal and isinstance(widget, vte.Terminal):
-                    widget.set_colors(fg_color, bg_color, [])
-    
-    def _get_style(self, doc):
-        """Return the GtkStyle specifying Gedit's color scheme for text."""
-        style_scheme = doc.get_style_scheme()
-        style = style_scheme.get_style('text')
-        return style
-    
-    def _get_colors(self, style):
-        """Return GDK colors for style, default to black on white."""
-        self._plugin.log()
-        
-        if style and style.get_property('foreground-set'):
-            fg_color_desc = style.get_property('foreground')
-        else:
-            fg_color_desc = 'black'
-        fg_color = gtk.gdk.color_parse(fg_color_desc)
-        
-        if style and style.get_property('background-set'):
-            bg_color_desc = style.get_property('background')
-        else:
-            bg_color_desc = 'white'
-        bg_color = gtk.gdk.color_parse(bg_color_desc)
-        
-        return fg_color, bg_color
-    
-    def _get_widgets_to_color(self, widget, depth=0):
-        """
-        Recursively find:
-            all child widgets of GtkScrolledWindow objects
-            the Embedded Terminal view
-            the Character Map table
-        """
-        if depth == 0:
+    def _get_notebooks(self, widget, original=True):
+        """Return a list of all gtk.Notebook widgets in the Gedit window."""
+        if original:
             self._plugin.log()
-        depth += 1
-        
-        widgets_to_color = set()
-        
-        if (isinstance(widget, gtk.TextView) or
-                isinstance(widget, gtk.TreeView) or
-                isinstance(widget, gtk.Entry)):
-            widgets_to_color.add(widget)
+        notebooks = []
         if isinstance(widget, gtk.Container):
-            
-            if (isinstance(widget, gtk.ScrolledWindow) or
-                    have_terminal and isinstance(widget, terminal.GeditTerminal) or
-                    'GucharmapTable' in type(widget).__name__):
-                first_child = widget.get_children()[0]
-                if first_child not in widgets_to_color:
-                    widgets_to_color.add(first_child)
-            
+            if (isinstance(widget, gtk.Notebook) and
+                'GeditNotebook' not in type(widget).__name__):
+                notebooks.append(widget)
             children = widget.get_children()
             for child in children:
-                widgets_to_color |= self._get_widgets_to_color(child, depth)
-        
+                notebooks += self._get_notebooks(child, False)
+        return notebooks
+    
+    def _update_pane_colors(self, doc):
+        """Apply the color scheme to appropriate widgets in the Gedit panes."""
+        self._plugin.log()
+        self._terminal = None
+        widgets_to_color = set()
+        for notebook in self._notebooks:
+            widgets_to_color |= self._get_widgets_to_color(notebook)
+        state = gtk.STATE_NORMAL
+        style = self._get_style(doc)
+        text_color, base_color = self._get_colors(style)
+        for widget in widgets_to_color:
+            self._plugin.log('Recoloring widget:\n %r' % widget)
+            widget.modify_text(state, text_color)
+            widget.modify_base(state, base_color)
+        if self._terminal:
+            if TERMINAL_MATCH_COLORS:
+                term_fg = text_color or self._get_gtk_system_color('text_color')
+                term_bg = base_color or self._get_gtk_system_color('base_color')
+                self._terminal.set_color_foreground(term_fg)
+                self._terminal.set_color_background(term_bg)
+            if TERMINAL_MATCH_FONT:
+                gedit_font = self._get_gedit_font()
+                self._terminal.set_font_from_string(gedit_font)
+    
+    def _get_widgets_to_color(self, widget, original=True):
+        """
+        Return a set of widgets likely to need re-coloring.
+        Identify the Embedded Terminal widget to be recolored.
+        """
+        if original:
+            self._plugin.log()
+        widgets_to_color = set()
+        if (('View' in type(widget).__name__ and
+                not isinstance(widget, gtk.CellView)) or
+                isinstance(widget, gtk.Entry) or
+                isinstance(widget, gtk.DrawingArea)):
+            widgets_to_color.add(widget)
+        elif isinstance(widget, gtk.Container):
+            children = widget.get_children()
+            for child in children:
+                widgets_to_color |= self._get_widgets_to_color(child, False)
+        elif HAVE_VTE and isinstance(widget, vte.Terminal):
+            self._terminal = widget
+            #widgets_to_color.add(widget)
         return widgets_to_color
     
     # Respond to change of the color scheme.
@@ -294,32 +298,19 @@ class ColorPanesWindowHelper(object):
     def _connect_notebooks(self):
         """Connect to the 'add' signal of each gtk.Notebook widget."""
         self._plugin.log()
-        self._plugin.log('notebooks: \n%s\n' % '\n'.join([repr(x) for x in self._notebooks]))
+        self._plugin.log('notebooks: \n%s\n' %
+            '\n'.join([repr(x) for x in self._notebooks]))
         for notebook in self._notebooks:
             self._handlers_per_notebook[notebook] = notebook.connect(
                 'page-added', self.on_page_added)
+            self._plugin.log('Connected to %r' % notebook)
     
     def _disconnect_notebooks(self):
         """Disconnect signal handlers from gtk.Notebook widgets."""
         self._plugin.log()
         for notebook in self._handlers_per_notebook:
             notebook.disconnect(self._handlers_per_notebook[notebook])
-    
-    def _get_notebooks(self, widget, depth=0):
-        """Return a list of all gtk.Notebook widgets in the Gedit window."""
-        if depth == 0:
-            self._plugin.log()
-        depth += 1
-        
-        notebooks = []
-        if isinstance(widget, gtk.Container):
-            if (isinstance(widget, gtk.Notebook) and
-                'GeditNotebook' not in type(widget).__name__):
-                notebooks.append(widget)
-            children = widget.get_children()
-            for child in children:
-                notebooks += self._get_notebooks(child, depth)
-        return notebooks
+            self._plugin.log('Disconnected from %r' % notebook)
     
     def on_page_added(self, notebook, child, page_num):
         """Propogate the color scheme because a view was added to a pane."""
@@ -327,5 +318,57 @@ class ColorPanesWindowHelper(object):
         doc = self._window.get_active_document()
         if doc:
             self._update_pane_colors(doc)
+    
+    # Miscellaneous
+    
+    def _get_gtk_system_color(self, color_name):
+        """Return the GDK color for the given system color name."""
+        self._plugin.log()
+        gtk_settings = gtk.settings_get_default()
+        gtk_color_scheme = gtk_settings.get_property('gtk-color-scheme')
+        gtk_color_list = gtk_color_scheme.strip().split('\n')
+        gtk_color_pairs = [line.split(': ') for line in gtk_color_list]
+        gtk_colors = {}
+        for name, desc in gtk_color_pairs:
+            gtk_colors[name] = desc
+        color_desc = gtk_colors[color_name]
+        gdk_color = gtk.gdk.color_parse(color_desc)
+        return gdk_color
+    
+    def _get_style(self, doc):
+        """Return the GtkStyle specifying Gedit's color scheme for text."""
+        self._plugin.log()
+        style_scheme = doc.get_style_scheme()
+        style = style_scheme.get_style('text')
+        return style
+    
+    def _get_colors(self, style):
+        """Return GDK colors for the style."""
+        self._plugin.log()
+        text_color = None
+        if style and style.get_property('foreground-set'):
+            text_color_desc = style.get_property('foreground')
+            if text_color_desc:
+                text_color = gtk.gdk.color_parse(text_color_desc)
+        base_color = None
+        if style and style.get_property('background-set'):
+            base_color_desc = style.get_property('background')
+            if base_color_desc:
+                base_color = gtk.gdk.color_parse(base_color_desc)
+        return text_color, base_color
+    
+    def _get_gedit_font(self):
+        """Return the font string for the font used in Gedit's editor."""
+        self._plugin.log()
+        gconf_client = gconf.client_get_default()
+        gedit_uses_system_font = gconf_client.get_bool(
+            '/apps/gedit-2/preferences/editor/font/use_default_font')
+        if gedit_uses_system_font:
+            gedit_font = gconf_client.get_string(
+                '/desktop/gnome/interface/monospace_font_name')
+        else:
+            gedit_font = gconf_client.get_string(
+                '/apps/gedit-2/preferences/editor/font/editor_font')
+        return gedit_font
     
 
