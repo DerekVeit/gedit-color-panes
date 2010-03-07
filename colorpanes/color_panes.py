@@ -18,6 +18,8 @@
 
 """
 Version history:
+2010-03-07  Version 2.0.1
+    Minor updates to docstrings, names, etc.  No functional change.
 2010-03-07  Version 2.0.0
     Added immediate response to desktop theme changes.
     Removed dependency on the document by using GConf instead.
@@ -69,8 +71,10 @@ class ColorPanesPlugin(gedit.Plugin):
     Public methods:
     activate -- Gedit calls this to start the plugin.
     deactivate -- Gedit calls this to stop the plugin.
-    update_ui -- Gedit calls this at certain times when the ui changes.
+    update_ui -- Gedit calls this, typically for a change of document.
     is_configurable -- Gedit calls this to check if the plugin is configurable.
+    log -- The plugin's methods call this to print self-identifying or
+           other informative output when running Gedit from a terminal.
     
     """
     
@@ -140,7 +144,7 @@ class ColorPanesPlugin(gedit.Plugin):
             self._gconf_cnxn = self.gconf_client.notify_add(
                 gconf_key,
                 lambda client, cnxn_id, entry, user_data:
-                    self.on_gedit_prefs_changed())
+                    self._on_gedit_prefs_changed())
             self.log('Connected to GConf, connection ID: %r' %
                 self._gconf_cnxn)
     
@@ -154,7 +158,7 @@ class ColorPanesPlugin(gedit.Plugin):
         self._gconf_cnxn = None
         self.gconf_client = None
     
-    def on_gedit_prefs_changed(self):
+    def _on_gedit_prefs_changed(self):
         """Respond to a change in Gedit's editor preferences."""
         self.log()
         for window in self._instances:
@@ -165,12 +169,12 @@ class ColorPanesPlugin(gedit.Plugin):
     def _start_logging(self):
         """Set up logging (to stdout) for the plugin."""
         self.logger = logging.getLogger('color_panes')
-        log_handler = logging.StreamHandler(sys.stdout)
+        handler = logging.StreamHandler(sys.stdout)
         log_format = "%(levelname)s - %(message)s"
         #log_format = "%(asctime)s - %(levelname)s - %(message)s"
         formatter = logging.Formatter(log_format)
-        log_handler.setFormatter(formatter)
-        self.logger.addHandler(log_handler)
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
         logging_level = getattr(logging, LOGGING_LEVEL)
         self.logger.setLevel(logging_level)
         self.log('Color Panes logging started. '.ljust(72, '-'))
@@ -202,16 +206,18 @@ class ColorPanesWindowHelper(object):
     window.
     
     Public methods:
+    activate -- ColorPanesPlugin calls this when Gedit calls activate for this
+                window.
     deactivate -- ColorPanesPlugin calls this when Gedit calls deactivate for
                   this window.
-    update_ui -- ColorPanesPlugin calls this when Gedit calls update_ui for
-                 this window.
+    update_pane_colors -- Applies the editor colors to widgets in the side and
+                          bottom panes.
     
     The plugin will update the colors in these cases:
-        When the plugin is initialized for the window.
-        When Gedit's editor preferences are changed.
-        When the desktop theme is changed.
-        When a tab is added to one of the panes (on_page_added).
+        When the plugin is activated for the window (activate).
+        When Gedit's editor preferences are changed (_on_gedit_prefs_changed).
+        When the desktop theme is changed (_on_style_set).
+        When a tab is added to one of the panes (_on_page_added).
     
     It does not handle the event of a view being added to an existing tab.
     
@@ -332,7 +338,7 @@ class ColorPanesWindowHelper(object):
     # Collect widgets
     
     def _get_notebooks(self, widget, original=True):
-        """Return a list of all gtk.Notebook widgets in the Gedit window."""
+        """Return a set of all gtk.Notebook widgets in the Gedit window."""
         if original:
             self._plugin.log()
         notebooks = set()
@@ -340,8 +346,7 @@ class ColorPanesWindowHelper(object):
             if (isinstance(widget, gtk.Notebook) and
                 'GeditNotebook' not in type(widget).__name__):
                 notebooks.add(widget)
-            children = widget.get_children()
-            for child in children:
+            for child in widget.get_children():
                 notebooks |= self._get_notebooks(child, False)
         return notebooks
     
@@ -377,7 +382,7 @@ class ColorPanesWindowHelper(object):
         self._plugin.log()
         self._window_style_handler = self._window.connect(
                 'style-set',
-                lambda widget, previous_style: self.on_style_set())
+                lambda widget, previous_style: self._on_style_set())
         self._plugin.log('Connected to %r' % self._window)
     
     def _disconnect_window(self):
@@ -387,7 +392,7 @@ class ColorPanesWindowHelper(object):
             self._window.disconnect(self._window_style_handler)
             self._plugin.log('Disconnected from %r' % self._window)
     
-    def on_style_set(self):
+    def _on_style_set(self):
         """Propogate the color scheme because system colors changed."""
         self._plugin.log()
         self.update_pane_colors()
@@ -398,12 +403,12 @@ class ColorPanesWindowHelper(object):
     def _connect_notebooks(self):
         """Connect to the 'add' signal of each gtk.Notebook widget."""
         self._plugin.log()
-        self._plugin.log('notebooks: \n%s\n' %
-            '\n'.join([repr(x) for x in self._notebooks]))
+        self._plugin.log('notebooks:\n%s' %
+            '\n '.join([repr(x) for x in self._notebooks]))
         for notebook in self._notebooks:
             self._handlers_per_notebook[notebook] = notebook.connect(
                 'page-added',
-                lambda notebook, child, page_num: self.on_page_added())
+                lambda notebook, child, page_num: self._on_page_added())
             self._plugin.log('Connected to %r' % notebook)
     
     def _disconnect_notebooks(self):
@@ -414,7 +419,7 @@ class ColorPanesWindowHelper(object):
             self._plugin.log('Disconnected from %r' % notebook)
         self._handlers_per_notebook = {}
     
-    def on_page_added(self):
+    def _on_page_added(self):
         """Propogate the color scheme because a view was added to a pane."""
         self._plugin.log()
         self.update_pane_colors()
@@ -537,7 +542,7 @@ class ColorPanesWindowHelper(object):
         pango_font = terminal.get_font()
         if pango_font:
             font_string = pango_font.to_string()
-            self._plugin.terminal_font[terminal] = font_string
             self._plugin.log('Storing terminal font: %s' % font_string)
+            self._plugin.terminal_font[terminal] = font_string
     
 
