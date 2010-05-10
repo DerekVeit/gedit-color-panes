@@ -18,6 +18,8 @@
 
 """
 Version history:
+2010-05-10  Version 2.1.1
+    Fixed Issue 2: Gedit crash caused by getting text colors from terminal.
 2010-03-26  Version 2.1.0
     Added recoloring of prelight (hover) state.
     Added font and some tag color matching of Python Console plugin.
@@ -40,7 +42,7 @@ Version history:
     Eliminated redundant color updates.
     Eliminated most redundant widget searching.
 2010-02-21  Version 1.0.1
-    Added coloring of Embedded Terminal and Chracter Map table.
+    Added coloring of Embedded Terminal and Character Map table.
 2010-02-20  Version 1.0
     Initial release
 
@@ -629,27 +631,10 @@ class ColorPanesWindowHelper(object):
     def _store_terminal_colors(self, terminal):
         """Record the original terminal colors before changing them."""
         self._plugin.log()
-        term_fg, term_bg = self._get_term_colors_from_term(terminal)
-        if (not term_fg or not term_bg or
-                term_fg.to_string() == term_bg.to_string()):
-            term_fg, term_bg = self._get_term_colors_from_gconf()
+        term_fg, term_bg = self._get_term_colors_from_gconf()
         self._plugin.log('Storing terminal fg color: %s' % term_fg.to_string())
         self._plugin.log('Storing terminal bg color: %s' % term_bg.to_string())
         self._plugin.terminal_colors[terminal] = term_fg, term_bg
-    
-    def _get_term_colors_from_term(self, terminal):
-        """Get the text colors from the terminal widget."""
-        self._plugin.log()
-        attributes_per_char = terminal.get_text(
-            (lambda terminal, column, row, data: True), True)[1]
-        if not attributes_per_char:
-            return None, None
-        first_char_attributes = attributes_per_char[1]
-        if not first_char_attributes:
-            return None, None
-        term_fg = first_char_attributes['fore']
-        term_bg = first_char_attributes['back']
-        return term_fg, term_bg
     
     def _get_term_colors_from_gconf(self):
         """Get the text colors from the Gnome Terminal profile in GConf."""
