@@ -18,9 +18,8 @@
 
 """
 Version history:
-2010-10-10
+2010-10-13  Version 2.2.0
     Replaced log methods with logger module.
-2010-10-09
     Fixed Issue 3: The cursor in the Python Console plugin pane is invisible
      with the Cobalt color scheme.
 2010-05-10  Version 2.1.1
