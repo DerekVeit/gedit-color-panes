@@ -18,6 +18,11 @@
 
 """
 Version history:
+2010-10-10
+    Replaced log methods with logger module.
+2010-10-09
+    Fixed Issue 3: The cursor in the Python Console plugin pane is invisible
+     with the Cobalt color scheme.
 2010-05-10  Version 2.1.1
     Fixed Issue 2: Gedit crash caused by getting text colors from terminal.
 2010-03-26  Version 2.1.0
@@ -58,9 +63,6 @@ TERMINAL_MATCH_FONT = True
 PYTERM_MATCH_COLORS = True
 PYTERM_MATCH_FONT = True
 
-LOGGING_LEVEL = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')[2]
-
-import logging
 import os
 import sys
 
@@ -69,6 +71,9 @@ import gconf
 import gtk
 import gtksourceview2
 import pango
+
+from .logger import Logger
+LOGGER = Logger(level=('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')[2])
 
 class ColorPanesPlugin(gedit.Plugin):
     
@@ -82,18 +87,14 @@ class ColorPanesPlugin(gedit.Plugin):
     deactivate -- Gedit calls this to stop the plugin.
     update_ui -- Gedit calls this, typically for a change of document.
     is_configurable -- Gedit calls this to check if the plugin is configurable.
-    log -- The plugin's methods call this to print self-identifying or
-           other informative output when running Gedit from a terminal.
     
     """
     
     def __init__(self):
         """Initialize plugin attributes and start logging."""
+        LOGGER.log()
         
         gedit.Plugin.__init__(self)
-        
-        self.logger = None
-        """Logger for debugging."""
         
         self.gconf_client = None
         """GConfClient for responding to changes in Gedit preferences."""
@@ -112,44 +113,41 @@ class ColorPanesPlugin(gedit.Plugin):
         """Original Python Terminal colors before changing."""
         self.pyterm_font = {}
         """Original Python Terminal font before changing."""
-        
-        self._start_logging()
-        self.log()
     
     def activate(self, window):
         """Start a ColorPanesWindowHelper instance for this Gedit window."""
-        self.log()
+        LOGGER.log()
         if not self._instances:
-            self.log('Color Panes activating.')
+            LOGGER.log('Color Panes activating.')
             self._connect_gconf()
         self._instances[window] = ColorPanesWindowHelper(self, window)
         self._instances[window].activate()
     
     def deactivate(self, window):
         """End the ColorPanesWindowHelper instance for this Gedit window."""
-        self.log()
+        LOGGER.log()
         self._instances[window].deactivate()
         self._instances.pop(window)
         if not self._instances:
             self._disconnect_gconf()
             self.terminal_colors = {}
             self.terminal_font = {}
-            self.log('Color Panes deactivated.')
+            LOGGER.log('Color Panes deactivated.')
     
     def update_ui(self, window):
         """(Gedit calls update_ui for each window.)"""
-        self.log()
+        LOGGER.log()
     
     def is_configurable(self):
-        """Identify for Gedit that Color Panes is not configurable."""
-        self.log()
+        """Identify for Gedit that this plugin is not configurable."""
+        LOGGER.log()
         return False
     
     # Respond to a change of the Gedit preferences.
     
     def _connect_gconf(self):
         """Have GConf call if the Gedit preferences change."""
-        self.log()
+        LOGGER.log()
         if not self.gconf_client:
             self.gconf_client = gconf.client_get_default()
             gconf_dir = '/apps/gedit-2/preferences'
@@ -159,59 +157,24 @@ class ColorPanesPlugin(gedit.Plugin):
                 gconf_key,
                 lambda client, cnxn_id, entry, user_data:
                     self._on_gedit_prefs_changed())
-            self.log('Connected to GConf, connection ID: %r' %
+            LOGGER.log('Connected to GConf, connection ID: %r' %
                 self._gconf_cnxn)
     
     def _disconnect_gconf(self):
         """Stop having GConf call if the Gedit preferences change."""
-        self.log()
+        LOGGER.log()
         if self.gconf_client and self._gconf_cnxn:
             self.gconf_client.notify_remove(self._gconf_cnxn)
-            self.log('Disconnected from GConf, connection ID: %r' %
+            LOGGER.log('Disconnected from GConf, connection ID: %r' %
                 self._gconf_cnxn)
         self._gconf_cnxn = None
         self.gconf_client = None
     
     def _on_gedit_prefs_changed(self):
         """Respond to a change in Gedit's editor preferences."""
-        self.log()
+        LOGGER.log()
         for window in self._instances:
             self._instances[window].update_pane_colors()
-    
-    # Log
-    
-    def _start_logging(self):
-        """Set up logging (to stdout) for the plugin."""
-        self.logger = logging.getLogger('color_panes')
-        handler = logging.StreamHandler(sys.stdout)
-        log_format = "%(levelname)s - %(message)s"
-        #log_format = "%(asctime)s - %(levelname)s - %(message)s"
-        formatter = logging.Formatter(log_format)
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
-        logging_level = getattr(logging, LOGGING_LEVEL)
-        self.logger.setLevel(logging_level)
-        self.log('Color Panes logging started. '.ljust(72, '-'))
-    
-    def log(self, message=None, level='info'):
-        """Log the message or log the calling function."""
-        if message:
-            logger = {'debug': self.logger.debug,
-                      'info': self.logger.info,
-                      'warning': self.logger.warning,
-                      'error': self.logger.error,
-                      'critical': self.logger.critical}[level]
-            logger(message)
-        else:
-            self.logger.debug(whoami())
-
-def whoami():
-    """Identify the calling function for logging."""
-    filename = os.path.basename(sys._getframe(2).f_code.co_filename)
-    line = sys._getframe(2).f_lineno
-    class_name = sys._getframe(2).f_locals['self'].__class__.__name__
-    function_name = sys._getframe(2).f_code.co_name
-    return '%s Line %s %s.%s' % (filename, line, class_name, function_name)
 
 class ColorPanesWindowHelper(object):
     
@@ -239,13 +202,12 @@ class ColorPanesWindowHelper(object):
     
     def __init__(self, plugin, window):
         """Initialize attributes for this window."""
+        LOGGER.log()
         
         self._window = window
         """The window this ColorPanesWindowHelper runs on."""
         self._plugin = plugin
         """The ColorPanesPlugin that spawned this ColorPanesWindowHelper."""
-        
-        self._plugin.log()
         
         # The side and bottom panes are gtk.Notebook instances.
         # They will signal if a new tabbed view ("page") is added.
@@ -259,8 +221,8 @@ class ColorPanesWindowHelper(object):
     
     def activate(self):
         """Start this instance of Color Panes."""
-        self._plugin.log()
-        self._plugin.log('Color Panes activating for %s' % self._window)
+        LOGGER.log()
+        LOGGER.log('Color Panes activating for %s' % self._window)
         self._notebooks = self._get_notebooks(self._window)
         self.update_pane_colors()
         self._connect_window()
@@ -268,46 +230,52 @@ class ColorPanesWindowHelper(object):
     
     def deactivate(self):
         """End this instance of Color Panes."""
-        self._plugin.log()
+        LOGGER.log()
         self._disconnect_notebooks()
         self._disconnect_window()
         self._restore_pane_colors()
         self._notebooks = None
-        self._plugin.log('Color Panes deactivated for %s\n' % self._window)
+        LOGGER.log('Color Panes deactivated for %s\n' % self._window)
     
     # Color widgets.
     
     def update_pane_colors(self):
         """Apply the color scheme to appropriate widgets in the Gedit panes."""
-        self._plugin.log()
+        LOGGER.log()
         text_color, base_color = self._get_gedit_text_colors()
-        self._recolor_pane_widgets(text_color, base_color)
+        cursor_color_1, cursor_color_2 = self._get_gedit_cursor_colors()
+        self._recolor_pane_widgets(text_color, base_color,
+                                   cursor_color_1, cursor_color_2)
         self._update_terminals(text_color, base_color)
         self._update_pyterms()
     
     def _restore_pane_colors(self):
         """Restore original widget colors and terminal font."""
-        self._plugin.log()
+        LOGGER.log()
         text_color, base_color = None, None
-        self._recolor_pane_widgets(text_color, base_color)
+        cursor_color_1, cursor_color_2 = None, None
+        self._recolor_pane_widgets(text_color, base_color,
+                                   cursor_color_1, cursor_color_2)
         self._restore_terminals()
         self._restore_pyterms()
     
-    def _recolor_pane_widgets(self, text_color, base_color):
+    def _recolor_pane_widgets(self, text_color, base_color,
+                                    cursor_color_1, cursor_color_2):
         """Apply the color scheme to appropriate widgets in the Gedit panes."""
-        self._plugin.log()
+        LOGGER.log()
         widgets_to_color = set()
         for notebook in self._notebooks:
             widgets_to_color |= self._get_widgets_to_color(notebook)
         for widget in widgets_to_color:
-            #self._plugin.log('Recoloring widget:\n %r' % widget)
+            #LOGGER.log('Recoloring widget:\n %r' % widget)
             for state in (gtk.STATE_NORMAL, gtk.STATE_PRELIGHT):
                 widget.modify_text(state, text_color)
                 widget.modify_base(state, base_color)
+                widget.modify_cursor(cursor_color_1, cursor_color_2)
         
     def _update_terminals(self, text_color, base_color):
         """Apply the color scheme and editor font to any terminal widgets."""
-        self._plugin.log()
+        LOGGER.log()
         terminals = set()
         for notebook in self._notebooks:
             terminals |= self._get_terminals(notebook)
@@ -331,7 +299,7 @@ class ColorPanesWindowHelper(object):
     
     def _restore_terminals(self):
         """Restore original terminal colors and font."""
-        self._plugin.log()
+        LOGGER.log()
         terminals = set()
         for notebook in self._notebooks:
             terminals |= self._get_terminals(notebook)
@@ -340,18 +308,18 @@ class ColorPanesWindowHelper(object):
                 if terminal in self._plugin.terminal_colors:
                     term_fg, term_bg = self._plugin.terminal_colors[terminal]
                     if term_fg:
-                        self._plugin.log('Restoring terminal fg color: %s' %
+                        LOGGER.log('Restoring terminal fg color: %s' %
                                             term_fg.to_string())
                         terminal.set_color_foreground(term_fg)
                     if term_bg:
-                        self._plugin.log('Restoring terminal bg color: %s' %
+                        LOGGER.log('Restoring terminal bg color: %s' %
                                             term_bg.to_string())
                         terminal.set_color_background(term_bg)
             if TERMINAL_MATCH_FONT:
                 if terminal in self._plugin.terminal_font:
                     font_string = self._plugin.terminal_font[terminal]
                     if font_string:
-                        self._plugin.log('Restoring terminal font: %s' %
+                        LOGGER.log('Restoring terminal font: %s' %
                                             font_string)
                         terminal.set_font_from_string(font_string)
     
@@ -369,7 +337,7 @@ class ColorPanesWindowHelper(object):
         you use the Cobalt scheme.  This function translates gtksourceview
         styles to gtk.TextTag properties to apply to the Python Console.
         """
-        self._plugin.log()
+        LOGGER.log()
         pyterms = set()
         for notebook in self._notebooks:
             pyterms |= self._get_pyterms(notebook)
@@ -407,7 +375,7 @@ class ColorPanesWindowHelper(object):
     
     def _restore_pyterms(self):
         """Restore original Python Console font and colors."""
-        self._plugin.log()
+        LOGGER.log()
         pyterms = set()
         for notebook in self._notebooks:
             pyterms |= self._get_pyterms(notebook)
@@ -433,7 +401,7 @@ class ColorPanesWindowHelper(object):
                     font = self._plugin.pyterm_font[pyterm]
                     font_string = font.to_string()
                     if font:
-                        self._plugin.log('Restoring Python Console font: %s' %
+                        LOGGER.log('Restoring Python Console font: %s' %
                                             font_string)
                         pyterm_textview = pyterm.get_children()[0]
                         pyterm_textview.modify_font(font)
@@ -443,7 +411,7 @@ class ColorPanesWindowHelper(object):
     def _get_notebooks(self, widget, original=True):
         """Return a set of all gtk.Notebook widgets in the Gedit window."""
         if original:
-            self._plugin.log()
+            LOGGER.log()
         notebooks = set()
         if hasattr(widget, 'get_children'):
             if (isinstance(widget, gtk.Notebook) and
@@ -451,12 +419,15 @@ class ColorPanesWindowHelper(object):
                 notebooks.add(widget)
             for child in widget.get_children():
                 notebooks |= self._get_notebooks(child, False)
+        if original:
+            for notebook in notebooks:
+                LOGGER.log('Found notebook: %r' % notebook)
         return notebooks
     
     def _get_widgets_to_color(self, widget, original=True):
         """Return a set of widgets likely to need re-coloring."""
         if original:
-            self._plugin.log()
+            LOGGER.log()
         widgets_to_color = set()
         if hasattr(widget, 'modify_text') and hasattr(widget, 'modify_base'):
             widgets_to_color.add(widget)
@@ -468,7 +439,7 @@ class ColorPanesWindowHelper(object):
     def _get_terminals(self, widget, original=True):
         """Return a set of terminals."""
         if original:
-            self._plugin.log()
+            LOGGER.log()
         terminals = set()
         if (hasattr(widget, 'set_color_foreground') and
                 hasattr(widget, 'set_color_background')):
@@ -481,7 +452,7 @@ class ColorPanesWindowHelper(object):
     def _get_pyterms(self, widget, original=True):
         """Return a set of Python Consoles (probably one)."""
         if original:
-            self._plugin.log()
+            LOGGER.log()
         pyterms = set()
         if widget.__class__.__name__ == 'PythonConsole':
             pyterms.add(widget)
@@ -494,22 +465,22 @@ class ColorPanesWindowHelper(object):
     
     def _connect_window(self):
         """Connect to the Gedit window's signal for desktop theme change."""
-        self._plugin.log()
+        LOGGER.log()
         self._window_style_handler = self._window.connect(
                 'style-set',
                 lambda widget, previous_style: self._on_style_set())
-        self._plugin.log('Connected to %r' % self._window)
+        LOGGER.log('Connected to %r' % self._window)
     
     def _disconnect_window(self):
         """Disconnect signal handler from the Gedit window."""
-        self._plugin.log()
+        LOGGER.log()
         if self._window_style_handler:
             self._window.disconnect(self._window_style_handler)
-            self._plugin.log('Disconnected from %r' % self._window)
+            LOGGER.log('Disconnected from %r' % self._window)
     
     def _on_style_set(self):
         """Propogate the color scheme because system colors changed."""
-        self._plugin.log()
+        LOGGER.log()
         self.update_pane_colors()
         return False
     
@@ -517,43 +488,43 @@ class ColorPanesWindowHelper(object):
     
     def _connect_notebooks(self):
         """Connect to the 'add' signal of each gtk.Notebook widget."""
-        self._plugin.log()
-        self._plugin.log('notebooks:\n %s' %
+        LOGGER.log()
+        LOGGER.log('notebooks:\n %s' %
             '\n '.join([repr(x) for x in self._notebooks]))
         for notebook in self._notebooks:
             self._handlers_per_notebook[notebook] = notebook.connect(
                 'page-added',
                 lambda notebook, child, page_num: self._on_page_added())
-            self._plugin.log('Connected to %r' % notebook)
+            LOGGER.log('Connected to %r' % notebook)
     
     def _disconnect_notebooks(self):
         """Disconnect signal handlers from gtk.Notebook widgets."""
-        self._plugin.log()
+        LOGGER.log()
         for notebook in self._handlers_per_notebook:
             notebook.disconnect(self._handlers_per_notebook[notebook])
-            self._plugin.log('Disconnected from %r' % notebook)
+            LOGGER.log('Disconnected from %r' % notebook)
         self._handlers_per_notebook = {}
     
     def _on_page_added(self):
         """Propogate the color scheme because a page was added to a pane."""
-        self._plugin.log()
+        LOGGER.log()
         self.update_pane_colors()
     
     # Get the colors and font to apply.
     
     def _get_gedit_scheme(self):
         """Return Gedit's color scheme."""
-        self._plugin.log()
+        LOGGER.log()
         scheme_name = self._plugin.gconf_client.get_string(
             '/apps/gedit-2/preferences/editor/colors/scheme') or 'classic'
-        self._plugin.log('Gedit color scheme: %s' % scheme_name)
+        LOGGER.log('Gedit color scheme: %s' % scheme_name)
         scheme_manager = self._get_gedit_style_scheme_manager()
         style_scheme = scheme_manager.get_scheme(scheme_name)
         return style_scheme
     
     def _get_gedit_style(self, style_name):
         """Return style from Gedit's color scheme."""
-        self._plugin.log()
+        LOGGER.log()
         style_scheme = self._get_gedit_scheme()
         if style_scheme:
             style = style_scheme.get_style(style_name)
@@ -561,7 +532,7 @@ class ColorPanesWindowHelper(object):
     
     def _get_gedit_style_colors(self, style_name):
         """Return style colors from Gedit's color scheme."""
-        self._plugin.log()
+        LOGGER.log()
         fg_color, bg_color = None, None
         style = self._get_gedit_style(style_name)
         if style:
@@ -570,27 +541,73 @@ class ColorPanesWindowHelper(object):
     
     def _get_gedit_text_colors(self):
         """Return foreground and background colors of Gedit's color scheme."""
-        self._plugin.log()
+        LOGGER.log()
         text_color, base_color = self._get_gedit_style_colors('text')
         if text_color and base_color:
-            self._plugin.log('Gedit text color: %s' % text_color.to_string())
-            self._plugin.log('Gedit base color: %s' % base_color.to_string())
+            LOGGER.log('Gedit text color: %s' % text_color.to_string())
+            LOGGER.log('Gedit base color: %s' % base_color.to_string())
         else:
             gtk_theme = self._plugin.gconf_client.get_string(
                 '/desktop/gnome/interface/gtk_theme')
-            self._plugin.log('GTK theme: %s' % gtk_theme)
+            LOGGER.log('GTK theme: %s' % gtk_theme)
             state = gtk.STATE_NORMAL
             gtk_theme_text_color = self._window.get_style().text[state]
             gtk_theme_base_color = self._window.get_style().text[state]
-            self._plugin.log('GTK theme text color: %s' %
+            LOGGER.log('GTK theme text color: %s' %
                 gtk_theme_text_color.to_string())
-            self._plugin.log('GTK theme base color: %s' %
+            LOGGER.log('GTK theme base color: %s' %
                 gtk_theme_base_color.to_string())
         return text_color, base_color
     
+    def _get_gedit_cursor_colors(self):
+        """
+        Return primary and secondary cursor colors of the active Gedit view.
+
+        Alternatively, the colors could be found this way:
+            view = self._window.get_active_view()
+            primary_color = view.style_get_property('cursor-color')
+            secondary_color = view.style_get_property(
+                              'secondary-cursor-color')
+        But it would depend on the view being available and updated.
+        """
+        LOGGER.log()
+        
+        # The cursor color typically matches the (normal) text color.
+        primary_color = self._get_gedit_style_colors('cursor')[0]
+        if primary_color:
+            LOGGER.log('Gedit scheme primary cursor color: %s' %
+                             primary_color.to_string())
+            calc_primary_color = primary_color
+        else:
+            calc_primary_color = (
+                self._window.style_get_property('cursor-color') or
+                self._window.get_style().text[gtk.STATE_NORMAL])
+            if calc_primary_color:
+                LOGGER.log('Default primary cursor color: %s' %
+                             calc_primary_color.to_string())
+        
+        # The secondary cursor color is for a secondary insertion cursor when
+        # editing mixed right-to-left and left-to-right text.
+        secondary_color = self._get_gedit_style_colors('secondary-cursor')[0]
+        if not secondary_color:
+            # If the secondary color is not defined, and it typically isn't,
+            #  then, to match gedit, it should be calculated as an average of
+            #  the primary color and the base color.
+            #     See gtksourcestylescheme.c:update_cursor_colors
+            base_color = (self._get_gedit_text_colors()[1] or
+                          self._window.get_style().base[gtk.STATE_NORMAL])
+            secondary_color = gtk.gdk.Color(
+                red=(calc_primary_color.red + base_color.red) / 2,
+                green=(calc_primary_color.green + base_color.green) / 2,
+                blue=(calc_primary_color.blue + base_color.blue) / 2)
+        LOGGER.log('Gedit secondary cursor color: %s' %
+                         secondary_color.to_string())
+        
+        return primary_color, secondary_color
+    
     def _get_gedit_style_scheme_manager(self):
         """Return a gtksourceview2.StyleSchemeManager imitating Gedit's."""
-        self._plugin.log()
+        LOGGER.log()
         scheme_manager = gtksourceview2.style_scheme_manager_get_default()
         gedit_styles_path = os.path.expanduser('~/.gnome2/gedit/styles')
         scheme_manager.append_search_path(gedit_styles_path)
@@ -598,7 +615,7 @@ class ColorPanesWindowHelper(object):
     
     def _get_style_colors(self, style):
         """Return GDK colors for the gtksourceview2.Style."""
-        self._plugin.log()
+        LOGGER.log()
         text_color = None
         if style and style.get_property('foreground-set'):
             text_color_desc = style.get_property('foreground')
@@ -613,32 +630,32 @@ class ColorPanesWindowHelper(object):
     
     def _get_gedit_font(self):
         """Return the font string for the font used in Gedit's editor."""
-        self._plugin.log()
+        LOGGER.log()
         gedit_uses_system_font = self._plugin.gconf_client.get_bool(
             '/apps/gedit-2/preferences/editor/font/use_default_font')
         if gedit_uses_system_font:
             gedit_font = self._plugin.gconf_client.get_string(
                 '/desktop/gnome/interface/monospace_font_name')
-            self._plugin.log('System font: %s' % gedit_font)
+            LOGGER.log('System font: %s' % gedit_font)
         else:
             gedit_font = self._plugin.gconf_client.get_string(
                 '/apps/gedit-2/preferences/editor/font/editor_font')
-            self._plugin.log('Gedit font: %s' % gedit_font)
+            LOGGER.log('Gedit font: %s' % gedit_font)
         return gedit_font
     
     # Record original terminal colors and font for restoring on deactivation.
     
     def _store_terminal_colors(self, terminal):
         """Record the original terminal colors before changing them."""
-        self._plugin.log()
+        LOGGER.log()
         term_fg, term_bg = self._get_term_colors_from_gconf()
-        self._plugin.log('Storing terminal fg color: %s' % term_fg.to_string())
-        self._plugin.log('Storing terminal bg color: %s' % term_bg.to_string())
+        LOGGER.log('Storing terminal fg color: %s' % term_fg.to_string())
+        LOGGER.log('Storing terminal bg color: %s' % term_bg.to_string())
         self._plugin.terminal_colors[terminal] = term_fg, term_bg
     
     def _get_term_colors_from_gconf(self):
         """Get the text colors from the Gnome Terminal profile in GConf."""
-        self._plugin.log()
+        LOGGER.log()
         profile = self._plugin.gconf_client.get_string(
             '/apps/gnome-terminal/global/default_profile')
         # The Embedded Terminal plugin has 'Default' hard coded.
@@ -653,17 +670,17 @@ class ColorPanesWindowHelper(object):
     
     def _store_terminal_font(self, terminal):
         """Record the original terminal font before changing it."""
-        self._plugin.log()
+        LOGGER.log()
         self._plugin.terminal_font[terminal] = None
         pango_font = terminal.get_font()
         if pango_font:
             font_string = pango_font.to_string()
-            self._plugin.log('Storing terminal font: %s' % font_string)
+            LOGGER.log('Storing terminal font: %s' % font_string)
             self._plugin.terminal_font[terminal] = font_string
     
     def _store_pyterm_colors(self, pyterm, tag_styles):
         """Record the original Python Console colors before changing them."""
-        self._plugin.log()
+        LOGGER.log()
         self._plugin.pyterm_colors[pyterm] = {}
         tag_props = tag_styles
         for tag in tag_props:
@@ -682,11 +699,11 @@ class ColorPanesWindowHelper(object):
     
     def _store_pyterm_font(self, pyterm):
         """Record the original Python Console font before changing it."""
-        self._plugin.log()
+        LOGGER.log()
         self._plugin.pyterm_font[pyterm] = None
         pango_font = pyterm.rc_get_style().font_desc
         if pango_font:
             font_string = pango_font.to_string()
-            self._plugin.log('Storing Python Console font: %s' % font_string)
+            LOGGER.log('Storing Python Console font: %s' % font_string)
             self._plugin.pyterm_font[pyterm] = pango_font
 

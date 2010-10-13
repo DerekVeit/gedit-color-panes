@@ -19,8 +19,8 @@
 """
 Color Panes plugin package
 
-2010-02-20
-Version 1.0
+2010-10-13
+Version 2.2.0
 
 Description:
 This plugin makes the side and bottom panes match the color scheme
@@ -36,6 +36,7 @@ colorpanes.gedit-plugin     -- Gedit reads this to know about the plugin.
 colorpanes/                 -- Package directory
     __init__.py             -- Package module loaded by Gedit.
     color_panes.py          -- Plugin and plugin helper classes.
+    logger.py               -- Module providing simple logging.
     gpl.txt                 -- GNU General Public License.
 
 """
